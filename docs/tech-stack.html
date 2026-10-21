@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<link rel="preload" href="../assets/fonts/wenkai-regular.woff2" as="font" type="font/woff2" crossorigin/>
+<link rel="preload" href="../assets/fonts/wenkai-medium.woff2" as="font" type="font/woff2" crossorigin/>
+<title>让 Agent 亲眼看一眼 · 技术栈全景图</title>
+<style>
+@font-face{font-family:"LXGW WenKai";src:url("../assets/fonts/wenkai-regular.woff2") format("woff2");font-weight:300 599;font-display:swap}
+@font-face{font-family:"LXGW WenKai";src:url("../assets/fonts/wenkai-medium.woff2") format("woff2");font-weight:600 900;font-display:swap}
+:root{
+  --bg:#0b0d10;--panel:#121519;--panel2:#171b21;--ink:#ece7dc;--ink2:#c9c3b6;--muted:#8b9199;--faint:#6a717a;
+  --line:#252a31;--line2:#1c2127;--red:#e0533c;--red-soft:rgba(224,83,60,.10);--steel:#8fb0c2;--steel-soft:rgba(143,176,194,.10);
+  --amber:#d9a441;--green:#79b294;--mono:ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  width:900px;background:var(--bg);color:var(--ink);
+  font-family:"LXGW WenKai",-apple-system,"PingFang SC",sans-serif;
+  padding:46px 46px 40px;-webkit-font-smoothing:antialiased;
+  background-image:radial-gradient(700px 340px at 84% -6%,rgba(143,176,194,.07),transparent 62%);
+}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-bottom:2px solid var(--ink);padding-bottom:16px}
+.eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.22em;color:var(--red);margin:0 0 9px}
+h1{margin:0;font-size:33px;line-height:1.2;letter-spacing:-.01em;font-weight:800}
+h1 em{font-style:normal;color:var(--steel)}
+.head .meta{text-align:right;font-family:var(--mono);font-size:9.5px;line-height:1.95;color:var(--faint);letter-spacing:.06em;white-space:nowrap}
+.dek{margin:17px 0 24px;font-size:13px;line-height:1.85;color:var(--ink2);max-width:740px}
+.legend{display:grid;grid-template-columns:54px 1fr;font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;color:var(--faint);margin-bottom:7px}
+.legend span:nth-child(2){padding-left:15px}
+.layer{display:grid;grid-template-columns:54px 1fr;border-top:1px solid var(--line)}
+.layer:last-of-type{border-bottom:1px solid var(--line)}
+.lname{background:var(--panel2);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:14px 0;border-right:1px solid var(--line)}
+.lname b{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:var(--red)}
+.lname span{writing-mode:vertical-rl;font-size:10px;letter-spacing:.24em;color:var(--muted);margin-top:10px}
+.cells{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line2);padding:1px 0 1px 1px}
+.cell{background:var(--panel);padding:12px 13px 11px;min-height:98px;position:relative}
+.cell h3{margin:0 0 3px;font-size:13.5px;font-weight:700;line-height:1.35}
+.cell .en{font-family:var(--mono);font-size:8px;letter-spacing:.1em;color:#5f666e;display:block;margin-bottom:7px}
+.cell p{margin:0;font-size:10.5px;line-height:1.72;color:#98a0a8}
+.cell.key{background:var(--steel-soft)}
+.cell.key h3{color:var(--steel)}
+.cell.warn{background:var(--red-soft)}
+.cell.warn h3{color:#f09684}
+.cell.amber{background:rgba(217,164,65,.09)}
+.cell.amber h3{color:var(--amber)}
+.cell .badge{position:absolute;top:9px;right:10px;font-family:var(--mono);font-size:7px;letter-spacing:.08em;color:#5f666e}
+.foot{display:grid;grid-template-columns:1.4fr 1fr;gap:26px;margin-top:24px;border-top:1px solid var(--ink);padding-top:15px}
+.foot h4{margin:0 0 8px;font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;color:var(--red);font-weight:600}
+.foot p{margin:0 0 8px;font-size:10.5px;line-height:1.8;color:#98a0a8}
+.eq{font-family:var(--mono);font-size:9.5px;color:#aab3bb;line-height:2.05}
+.eq b{color:var(--amber);font-weight:600}
+.eq i{color:var(--red);font-style:normal}
+.stamp{display:flex;justify-content:space-between;align-items:center;margin-top:17px;font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;color:#5f666e}
+.stamp b{color:var(--steel);font-weight:600}
+</style>
+</head>
+<body>
+<div class="head">
+  <div>
+    <p class="eyebrow">FIELD NOTES · VOL.05 · STACK MAP</p>
+    <h1>让 Agent <em>亲眼</em>看一眼 · 技术栈全景</h1>
+  </div>
+  <div class="meta">造物手记 VOL.05<br/>2026.10<br/>StarrySea1412</div>
+</div>
+<p class="dek">一个会看画面的 agent，由六层组成。越往上越接近模型（会产生断言），越往下越接近证据（必须可回查）。这张图不是库清单，是「每条结论的证据从哪来、错在哪一层被拦住」。每一格都在回答同一个问题：这里凭什么说的算？</p>
+
+<div class="legend"><span>LAYER</span><span>SUBSYSTEMS ／ 每一格 = 一道可回查的环节</span></div>
+
+<div class="layer">
+  <div class="lname"><b>L5</b><span>模型层</span></div>
+  <div class="cells">
+    <div class="cell"><h3>文本模型</h3><span class="en">MAP / REDUCE</span><p>分段归并 + 全局摘要。时间戳只许引用输入，不生成。</p></div>
+    <div class="cell"><h3>视觉模型</h3><span class="en">VLM</span><p>多帧 + 当时字幕/OCR 一起看；输出 note / quoted_text / confidence。</p></div>
+    <div class="cell warn"><h3>视觉真伪探测</h3><span class="en">RANDOM PROBE</span><p>随机方块题面，盲猜 &lt;2%。答不对就别号称有视觉。</p><span class="badge">GATE</span></div>
+    <div class="cell"><h3>审核员</h3><span class="en">REVIEWER</span><p>全新上下文；只杀「直接矛盾」与「编造实体」，材料不足标 insufficient。</p></div>
+  </div>
+</div>
+
+<div class="layer">
+  <div class="lname"><b>L4</b><span>证据层</span></div>
+  <div class="cells">
+    <div class="cell key"><h3>统一时间轴</h3><span class="en">TIMELINE</span><p>每条 = 字幕 + OCR + 视觉笔记 + 帧。全系统的唯一真相源。</p><span class="badge">CORE</span></div>
+    <div class="cell key"><h3>证据绑定</h3><span class="en">EVIDENCE BIND</span><p>visual.evidence 为空 → 构造即抛异常，不是提示词约束。</p></div>
+    <div class="cell"><h3>注意力预算</h3><span class="en">ATTENTION</span><p>指代 +2 / 切点 +1 / 弹幕 0–2；贪心 + 最小间隔。</p></div>
+    <div class="cell"><h3>补帧规划</h3><span class="en">BACKFILL</span><p>按时间分桶 + 视觉线索打分；≤12 帧，只认 ffmpeg pts。</p></div>
+  </div>
+</div>
+
+<div class="layer">
+  <div class="lname"><b>L3</b><span>校验层</span></div>
+  <div class="cells">
+    <div class="cell key"><h3>时间戳贴回</h3><span class="en">SNAP</span><p>±1s（map）/ ±15s（reduce）；贴不回就是编造，直接丢。</p><span class="badge">FREE</span></div>
+    <div class="cell key"><h3>bigram 回查</h3><span class="en">VERIFY</span><p>±20s 窗口命中率 ≥0.22；keep / repair / drop 三值。</p></div>
+    <div class="cell"><h3>OCR 交叉</h3><span class="en">CROSS-CHECK</span><p>quoted_text 必须在同帧 OCR 里；否则 unconfirmed，不作事实。</p></div>
+    <div class="cell"><h3>金句逐字</h3><span class="en">QUOTE LOCK</span><p>连续字幕逐字 + 词边界；找不到原话就不给引号。</p></div>
+  </div>
+</div>
+
+<div class="layer">
+  <div class="lname"><b>L2</b><span>管线层</span></div>
+  <div class="cells">
+    <div class="cell"><h3>150 秒分段</h3><span class="en">CHUNK</span><p>map 并行 4 worker，失败隔离；连续失败 5 段触发渠道熔断。</p></div>
+    <div class="cell"><h3>分层压缩</h3><span class="en">CONDENSE</span><p>&gt;360 条 → 120/批 → 留 12；细节换可读性。</p></div>
+    <div class="cell amber"><h3>缓存身份</h3><span class="en">CACHE KEY</span><p>内容 + prompt + 后端身份 + ASR 不确定标注；换条件必失效。</p></div>
+    <div class="cell"><h3>覆盖账本</h3><span class="en">COVERAGE</span><p>请求/完成/失败逐段记账；缺口写进 reduce 提示词。</p></div>
+  </div>
+</div>
+
+<div class="layer">
+  <div class="lname"><b>L1</b><span>降级层</span></div>
+  <div class="cells">
+    <div class="cell"><h3>四档阶梯</h3><span class="en">LADDER</span><p>云 VLM → 本地 VLM → 信号 → 纯字幕；档位写进报告。</p></div>
+    <div class="cell"><h3>首字节竞速</h3><span class="en">RACING</span><p>2 候选并发取首个可解析 JSON，胜者即返；常规调用顺序 failover，同站只留一个候选。</p></div>
+    <div class="cell"><h3>站点熔断</h3><span class="en">BREAKER</span><p>连续 2 次失败冷却 120s；半开探针。跨任务记忆。</p></div>
+    <div class="cell warn"><h3>降级报告</h3><span class="en">DEGRADED</span><p>全队列挂掉也交时间轴 + 帧；重跑走缓存 30 秒补全。</p></div>
+  </div>
+</div>
+
+<div class="layer">
+  <div class="lname"><b>L0</b><span>底座层</span></div>
+  <div class="cells">
+    <div class="cell"><h3>确定性媒体</h3><span class="en">FFMPEG</span><p>只读不重编码；<code>-ss</code> 精确截帧，时间轴基准永不动。</p></div>
+    <div class="cell"><h3>文字轨</h3><span class="en">SUBTITLE / ASR</span><p>平台字幕优先，faster-whisper 兜底；词级时间戳 + 不确定标注。</p></div>
+    <div class="cell"><h3>评测靶场</h3><span class="en">EVAL</span><p>19 条金标准 + 4 条视觉点；双重判定 + 幻觉率 + 视觉增益。</p></div>
+    <div class="cell key"><h3>质量门</h3><span class="en">QUALITY GATE</span><p>只体检不判决；pass / review / fail，从不删内容。</p><span class="badge">TRUTH</span></div>
+  </div>
+</div>
+
+<div class="foot">
+  <div>
+    <h4>WHY THIS SHAPE</h4>
+    <p>上面两层负责「看见」，中间两层负责「站得住」，下面两层负责「不熄火」。所有视觉幻觉都发生在「模型说了什么」和「有什么可回查」之间的缝隙里——所以每一格都配了一条确定性检查或一个诚实的状态。</p>
+    <p>3587 个测试里，真正调用模型的不到一成；其余都在测这些「缝隙」：贴回、命中率、边界、覆盖、缓存身份。</p>
+  </div>
+  <div>
+    <h4>THE ARITHMETIC</h4>
+    <div class="eq">
+      命中率 <b>hit = |g₁∩g₂| / |g₁|</b> ≥ 0.22<br/>
+      评测更严：<i>≥ 0.25</i> 且 Δt ≤ 15s<br/>
+      视觉增益 = 视觉点命中 / <i>4</i><br/>
+      4h17m → 101 段 / 100 完成<br/>
+      审核 5/31 → <i>partial</i>（不伪装）
+    </div>
+  </div>
+</div>
+
+<div class="stamp"><span>READ · <b>让 Agent 亲眼看一眼</b> · 一个视频理解 Agent 的证据链</span><span>STARRYSEA · 造物手记 VOL.05</span></div>
+</body>
+</html>

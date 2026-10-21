@@ -1,0 +1,87 @@
+<section class="chapter" id="ch3">
+  <div class="ch-head">
+    <div class="ch-num">SCENE<b>03</b></div>
+    <div class="ch-title">
+      <h2>证据先于结论</h2>
+      <p>不靠提示词请求模型「请附上证据」，靠构造函数拒绝没有证据的视觉笔记。</p>
+    </div>
+  </div>
+  <div class="ch-body">
+    <p class="lede">「每条结论都要有依据」听起来像一句提示词。但在 SeeFlow 里，它是一行会抛异常的代码。时间轴写入的入口只有一个：</p>
+    <div class="code">
+      <div class="code-bar"><b>core/timeline.py</b><span>Timeline.add</span></div>
+<pre><span class="k">def</span> <span class="f">add</span>(self, entry: TimelineEntry) -> <span class="k">None</span>:
+    <span class="k">if</span> entry.visual <span class="k">is not None</span> <span class="k">and not</span> entry.visual.evidence:
+        <span class="k">raise</span> <span class="f">ValueError</span>(<span class="s">"证据绑定违规：visual note 缺少 evidence 帧，拒绝写入时间轴"</span>)
+    <span class="k">with</span> self._lock:
+        self._entries.append(entry)
+        self._entries.sort(key=<span class="k">lambda</span> e: e.t)</pre>
+    </div>
+    <p>视觉笔记的数据结构里，<code>evidence</code> 是帧文件路径的列表；只要它是空的，带视觉笔记的条目就进不了时间轴。这不是「建议」，是运行时约束。提示词可以写「请引用原文」，模型可以选择不听；构造函数不参与对话，它只会拒绝。</p>
+
+    <h3>一条视觉笔记长什么样</h3>
+    <p><code>VisualNote</code> 有五个字段，每个都在为后续的校验服务：</p>
+    <div class="code">
+      <div class="code-bar"><b>core/timeline.py</b><span>VisualNote</span></div>
+<pre><span class="k">@dataclass</span>
+<span class="k">class</span> <span class="f">VisualNote</span>:
+    note: str                 <span class="c"># 结构化描述（主体/逐帧变化/画面文字/条件/与字幕关系/无法判断）</span>
+    provider: str             <span class="c"># 哪个感知插件给的</span>
+    confidence: float         <span class="c"># 模型自评，明确不是事实正确率</span>
+    evidence: list[str]       <span class="c"># 帧文件路径；空 → 拒收</span>
+    quoted_text: list[str]    <span class="c"># 声称画面里出现的文字，供同帧 OCR 交叉校验</span>
+    unconfirmed: bool         <span class="c"># 置信度 &lt; 0.5 或交叉校验失败 → 不许作为事实输出</span></pre>
+    </div>
+    <p>这五个字段对应三道后续动作。<code>quoted_text</code> 会被拿去和同帧 OCR 做子串比对：模型说「画面写着 15%」，OCR 在这一帧里找不到「15%」，这条笔记就会被标记为 <code>unconfirmed</code>。<code>confidence</code> 低于 0.5 时，同样直接标记为未确认——模型自己都没把握，系统不替它做主。<code>unconfirmed</code> 的笔记仍然留在时间轴里作为记录，但<em>不会进入断言校验的证据语料</em>。</p>
+    <div class="code">
+      <div class="code-bar"><b>core/verify.py</b><span>source_texts</span></div>
+<pre><span class="c"># 截图本身不是文字证据；只有"已确认 + 有证据帧 + 置信度合法"的视觉笔记</span>
+<span class="c"># 才加入可回查的文本语料</span>
+<span class="k">if</span> (not visual.unconfirmed <span class="k">and</span> visual.note.strip()
+        <span class="k">and</span> visual.evidence <span class="k">and</span> confidence <span class="k">is not None and</span> confidence &lt;= <span class="n">1</span>):
+    sources.append((<span class="s">"visual"</span>, visual.note))</pre>
+    </div>
+    <p>注意这里的措辞：<strong>截图本身不是文字证据</strong>。一张图能证明「这一帧在视频里存在」，不能证明「模型对它的解读是对的」。所以校验语料只收「已确认且带帧」的视觉笔记，不收裸图。裸图留在时间轴上，供人看、供报告挂图，但不参与「这句话有没有依据」的判定。</p>
+
+    <figure class="fig">
+      <div class="frame"><img src="assets/art/evidence-board.webp" alt="纸鹤把一帧视频钉在证据板上，红线连到两张标签，第三张标签的线断了" width="1280" height="768"/></div>
+      <figcaption><b>FIG. 03</b>证据板：帧是锚点，标签是断言；线断了的那张，就是被校验层丢掉的一条。 </figcaption>
+    </figure>
+
+    <h3>证据不能是装饰：一帧只用一次</h3>
+    <p>报告生成后还有一步「证据回贴」：每条要点、章节、金句按时间戳就近（±15 秒）从时间轴找证据帧。第一版实现是「谁近谁拿」，结果很难看——10 分钟的视频只有 9 张帧，邻近的五六条要点全部挂着同一组图。读者往下翻，看到的不是证据，是壁纸。</p>
+    <div class="code">
+      <div class="code-bar"><b>core/summary.py</b><span>attach_evidence</span></div>
+<pre><span class="c"># 每个证据文件只挂到最贴近的一个条目：稀疏帧率下，邻近多条要点</span>
+<span class="c"># 逐条重复挂同一组图会把视觉证据退化成装饰（2026-09-19 实测）</span>
+candidates.sort(key=<span class="k">lambda</span> x: x[<span class="n">0</span>])
+used: set[str] = set()
+<span class="k">for</span> _, p, ev <span class="k">in</span> candidates:
+    fresh = [f <span class="k">for</span> f <span class="k">in</span> ev <span class="k">if</span> f <span class="k">not in</span> used]
+    <span class="k">if</span> fresh:
+        p[<span class="s">"evidence"</span>] = fresh
+        used.update(fresh)</pre>
+    </div>
+    <p>代价是有些要点挂不上图。这是对的：与其让十条结论共享同一张图，不如诚实地让六条空着。<strong>证据的价值在于区分，不在于覆盖率。</strong>一条挂不上图的要点，读者会自己判断它可能只是转述；十条都挂同一张图，读者会以为每条都被验证过——那才是真正的欺骗。</p>
+
+    <h3>补帧：当报告已经生成，证据却丢了</h3>
+    <p>还有个更常见的场景：用户对一份旧报告不满意，换模型重新生成。新版本复用了缓存视频和转写，但旧的证据帧没有一起搬过来，报告里全是裸结论。SeeFlow 的补帧器 <code>evidence_backfill</code> 解决这个：从本地缓存视频里按「时间分布」补抽最多 12 帧，时间戳来自 ffmpeg 的 pts，不调用视觉模型，不重写任何已有正文。</p>
+    <p>补帧的排布不是均匀撒点。它先把时长切成若干「覆盖桶」（6 秒以上切 6 桶），优先补空的桶，再按字幕里的视觉线索（「如图」「屏幕」「对比」「测试」「参数」等）和是否含数字打分，最后用 <code>duration / (2 × target)</code> 算最小间隔，避免全挤在一处。</p>
+    <div class="formula">
+      <div class="eq">target = min(12, max(bins, ⌈duration / 30⌉)) &nbsp;&nbsp; gap = duration / (2·target)</div>
+      <small>每次补帧有 90 秒总预算；解码前后各校验一次视频身份（dev/inode/size/mtime），中途变化即停止。</small>
+      <p class="why">真实案例：小白评测那条 587 秒的视频，重新生成报告时补了 12 张帧，用时 7.08 秒，报告的「证据回填」状态为 done。它只补齐「时间分布」，不补语义——补帧结果里明确写着「仅关联字幕，未执行视觉语义分析」。</p>
+    </div>
+    <div class="code">
+      <div class="code-bar"><b>core/evidence_backfill.py</b><span>_coverage</span></div>
+<pre><span class="c"># 6 秒以上切 6 个桶；"sufficient" 只表示时间分布被覆盖</span>
+<span class="s">"meaning"</span>: <span class="s">"时间分布抽样；不代表连续画面覆盖或视觉语义已验证。"</span></pre>
+    </div>
+    <p>这句 <code>meaning</code> 是整章态度的缩影：系统知道自己补的是什么。补的是「时间上分散的 12 个锚点」，不是「看懂了整条片子」。把边界写进返回值，UI 才不会把补帧吹成理解。</p>
+
+    <h3>证据证明什么，不证明什么</h3>
+    <p>一张带时间戳的截图，能证明三件事：这一帧在视频的这个时刻存在；视觉模型当时看到的是它；读者可以点回原片核对。它不能证明：模型的解读正确；这条结论是视频的主要观点；同一时刻没有别的相反证据。</p>
+    <div class="pull">证据不是真理，是<strong>地址</strong>。它把「请你相信我」换成「你可以去这里看」。</div>
+    <p>这个区分决定了整篇文章后半部分的走向。既然证据只能提供地址，那么「结论对不对」就必须靠另一套东西来判断：确定性的回查、独立的审核、以及允许系统说「不确定」的状态机。这就是第 4 章。</p>
+  </div>
+</section>

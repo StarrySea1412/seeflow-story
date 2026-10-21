@@ -1,0 +1,84 @@
+<section class="chapter" id="ch1">
+  <div class="ch-head">
+    <div class="ch-num">SCENE<b>01</b></div>
+    <div class="ch-title">
+      <h2>字幕之外</h2>
+      <p>视频不是一篇文章配了几张插图。把它压成一条字幕轨，丢掉的恰好是「看过」与「没看过」的区别。</p>
+    </div>
+  </div>
+  <div class="ch-body">
+    <p class="lede">先看一条真实的片子。影视飓风 2025 年度相机颁奖，18 分 30 秒，B 站。SeeFlow 为它建立了 618 条时间轴记录，每条记录包含这一时刻的字幕、画面文字（如果 OCR 在线）、视觉笔记（如果视觉模型在线）与证据帧。字幕轨很完整：评选规则、每个奖项、每台相机的参数，说话人几乎都念了出来。</p>
+    <p>于是「字幕-only」的总结看起来毫无破绽：最佳 vlog 相机是佳能 PowerShot V1，最佳全画幅是佳能 R6 III，最佳电影机是 Alexa 35 Extreme……直到你打开那份人工标注的金标准，看到另外四条：</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>时间</th><th>金标准里的条目</th><th>为什么字幕给不了</th></tr></thead>
+        <tbody>
+          <tr><td class="num">02:38</td><td>SIGMA BF 的实机外观在众多黑色相机中最亮眼</td><td>「亮眼」是画面判断，字幕只说了型号</td></tr>
+          <tr><td class="num">04:34</td><td>全景无人机解耦演示：云台不再限制头部转向</td><td>动作发生在演示画面里，解说只说「可以随便看」</td></tr>
+          <tr><td class="num">14:01</td><td>GFX100RF 屏幕上显示首发价格，目前市售价更低</td><td>数字在屏幕上，不在语音里</td></tr>
+          <tr><td class="num">10:40</td><td>R6 III 过热测试画面：60 帧录制下机身过热提示</td><td>提示是界面状态，旁白只讲了「会过热」</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>这四条不是边角料。它们恰好是「这个人真的看过视频」的证据：外观亮不亮眼、云台怎么解耦、价格写在哪儿、过热提示长什么样。一份漏掉它们的总结，信息量再大，读起来也像转录稿。</p>
+
+    <h3>视频有四条轨，字幕只覆盖一条</h3>
+    <p>把一条视频拆成信号，至少有四条并行的轨：</p>
+    <ul>
+      <li><strong>语音轨</strong>——说了什么，附带时间戳。平台字幕或 ASR 提供，这是所有总结工具的默认输入。</li>
+      <li><strong>画面文字轨</strong>——屏幕上写了什么：PPT、代码、菜单、价格、参数表、烧录字幕。OCR 可以确定性提取。</li>
+      <li><strong>视觉状态轨</strong>——画面里有什么、长什么样、正在发生什么。只有看帧才能得到。</li>
+      <li><strong>声音轨</strong>——音乐、停顿、环境声、语气。它不是语义，但决定「这段在强调什么」。</li>
+    </ul>
+    <p>「字幕-only」并不是一条捷径，而是一次<em>有损投影</em>：把四维信号压成一维文本。压缩本身没有错——错的是把压缩后的结果当成原片。更麻烦的是，语音轨自己也不干净：这条片子的 whisper 转写里，「影视飓风」被写成「影视剧风」，「佳能」被写成「加能」，「C-Log 3」被写成「CLOCK 3」。人工标注金标准时，这些错字被逐个改正——因为金标准是给人看的；而模型看到的，是带着噪声的转写。</p>
+    <div class="note"><b>两条文本轨并不冗余。</b>语音轨是「说话人想说什么」，画面文字轨是「编辑决定把什么留在屏幕上」。两者不一致时，不一致本身就是信号：ASR 写出「加能」，画面里明明白白是「佳能」——这正是 OCR 交叉校验存在的理由。它不负责理解，只负责在两条轨之间对账。</div>
+
+    <h3>一次诚实的缺席</h3>
+    <p>需要现在就说明：这台机器上没有安装 PaddleOCR。所以那次 18 分钟实跑的「画面文字轨」是空的——时间轴里 618 条记录的 <code>ocr</code> 字段全部为 <code>null</code>。视觉模型也没有配置，12 张证据帧是「信号模式」下按疑点截的，没有任何语义笔记。这次运行的真实产物是：字幕、镜头切换点、12 张帧、一份 13 条要点的省流，以及四条视觉金标准的全部落空。</p>
+    <p>这不是要藏起来的失败，而是这套系统的常态之一：<strong>能力可以缺席，缺席必须留痕。</strong>报告的元信息会标注感知模式；质量门会把「视觉断言没有证据帧」记为警告；金标准里的四条视觉点，在评测里单独构成「视觉增益」的分母。第 5 章会讲四档降级，第 7 章会讲怎么给这种缺席打分。现在只需要记住：一条字幕轨能撑起一份「像样」的总结，但撑不起「看过」这个 claim。</p>
+
+    <div class="fig">
+      <div class="frame">
+        <svg viewBox="0 0 960 300" role="img" aria-label="四条信号轨：语音、画面文字、视觉状态、声音；字幕-only 只取第一条">
+          <rect width="960" height="300" fill="#0e1115"/>
+          <g font-family="ui-monospace,Consolas,monospace" font-size="11" fill="#8f959e">
+            <text x="24" y="34">T=0s</text><text x="456" y="34">300s</text><text x="900" y="34">618 entries</text>
+            <text x="24" y="78">SPEECH</text><text x="24" y="128">ON-SCREEN</text><text x="24" y="178">VISUAL</text><text x="24" y="228">AUDIO</text>
+          </g>
+          <g>
+            <rect x="112" y="64" width="800" height="20" fill="#1c2127"/>
+            <g fill="#8fb0c2" opacity=".8">
+              <rect x="120" y="64" width="18" height="20"/><rect x="146" y="64" width="26" height="20"/><rect x="180" y="64" width="12" height="20"/><rect x="200" y="64" width="34" height="20"/><rect x="242" y="64" width="16" height="20"/><rect x="266" y="64" width="28" height="20"/><rect x="302" y="64" width="22" height="20"/><rect x="332" y="64" width="40" height="20"/><rect x="380" y="64" width="18" height="20"/><rect x="406" y="64" width="30" height="20"/><rect x="444" y="64" width="24" height="20"/><rect x="476" y="64" width="36" height="20"/><rect x="520" y="64" width="20" height="20"/><rect x="548" y="64" width="28" height="20"/><rect x="584" y="64" width="18" height="20"/><rect x="610" y="64" width="42" height="20"/><rect x="660" y="64" width="24" height="20"/><rect x="692" y="64" width="30" height="20"/><rect x="730" y="64" width="20" height="20"/><rect x="758" y="64" width="36" height="20"/><rect x="802" y="64" width="26" height="20"/><rect x="836" y="64" width="30" height="20"/><rect x="874" y="64" width="30" height="20"/>
+            </g>
+            <rect x="112" y="114" width="800" height="20" fill="#1c2127"/>
+            <g fill="#d9a441" opacity=".85">
+              <rect x="214" y="114" width="52" height="20" opacity=".5"/><rect x="330" y="114" width="60" height="20"/><rect x="588" y="114" width="74" height="20"/><rect x="742" y="114" width="58" height="20"/><rect x="856" y="114" width="44" height="20" opacity=".5"/>
+            </g>
+            <rect x="112" y="164" width="800" height="20" fill="#1c2127"/>
+            <g fill="#e0533c">
+              <rect x="300" y="164" width="34" height="20"/><rect x="444" y="164" width="26" height="20" opacity=".55"/><rect x="622" y="164" width="30" height="20"/>
+            </g>
+            <rect x="112" y="214" width="800" height="20" fill="#1c2127"/>
+            <g fill="#79b294" opacity=".55">
+              <rect x="112" y="214" width="160" height="20"/><rect x="300" y="214" width="90" height="20"/><rect x="410" y="214" width="120" height="20"/><rect x="560" y="214" width="60" height="20"/><rect x="640" y="214" width="150" height="20"/><rect x="810" y="214" width="102" height="20"/>
+            </g>
+          </g>
+          <g font-family="ui-monospace,Consolas,monospace" font-size="10" fill="#6d747d">
+            <text x="112" y="256">字幕-only 只读第一条。</text>
+            <text x="112" y="274" fill="#e0533c">红色三处 = 只有看画面才能确认的时刻（本次实跑 12 帧 / 618 条）。</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption><b>FIG. 01</b>四条信号轨。字幕轨密集而连续；视觉轨稀疏，但承载了「看过」的证据。</figcaption>
+    </div>
+
+    <p>还有一个数量级问题。18 分钟按 1 fps 均匀抽帧是 1110 张图——是这次实际截取量（12 张）的 92 倍。把 1110 张图逐张送进视觉模型，成本、延迟、上下文都会爆掉；只抽 3 张，又会漏掉大部分信息。所以「看画面」不是抽帧，而是<strong>决定看哪里</strong>。这是下一章的事。</p>
+    <p>在进入之前，把问题钉死：一条字幕轨能回答「他说了什么」，回答不了三件事——</p>
+    <ol>
+      <li><strong>指代</strong>：他说「这个」「如图」「看这里」时，到底指什么；</li>
+      <li><strong>状态</strong>：屏幕上的数字、菜单、报错、价格，语音往往不念；</li>
+      <li><strong>外观与动作</strong>：好不好看、怎么动、有没有展示，语言只能给结论，画面才是依据。</li>
+    </ol>
+    <p>要补上这三件事，需要一条完整的链：去哪里看（第 2 章）、看完怎么记（第 3 章）、记错了怎么抓（第 4 章）。链断在任何一环，「会看画面」都只是演示。</p>
+  </div>
+</section>

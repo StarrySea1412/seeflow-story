@@ -1,0 +1,75 @@
+<section class="chapter" id="ch7">
+  <div class="ch-head">
+    <div class="ch-num">SCENE<b>07</b></div>
+    <div class="ch-title">
+      <h2>怎么证明它真的在看</h2>
+      <p>「会看画面」如果不设一个单独的分数，它就永远无法被证伪。评测这一章，讲的是怎么给「看见」定价。</p>
+    </div>
+  </div>
+  <div class="ch-body">
+    <p class="lede">前六章都在讲系统怎么工作。这一章讲一个更不讨喜的问题：你怎么知道它工作？一个 agent 说自己「看了画面」，和一个人说自己「读了书」，是同一种 claim——除非有独立的检验。SeeFlow 的评测从一份金标准开始：一条 18 分钟的视频，人工通读原始 whisper 字幕，独立标注 19 条要点；再单独标 4 条<strong>只有看画面才能写对</strong>的视觉点。</p>
+    <div class="code">
+      <div class="code-bar"><b>eval/cases/yingshi-2025-awards/meta.json</b><span>annotation_note</span></div>
+<pre><span class="s">"金标准由人工通读原始 whisper 字幕独立标注（未参考任何管线输出），</span>
+<span class="s">时间戳取自原始记录，措辞使用正确写法（ASR 噪声如'影视剧风/加能/</span>
+<span class="s">CLOCK 3'在金标准中已修正，考验匹配的容错性）。"</span></pre>
+    </div>
+    <p>这句话里有两个刻意的设计。第一，「未参考任何管线输出」——金标准不能由被测系统参与生成，否则就是自证。第二，「措辞使用正确写法」——金标准在考的是内容命中，不是 ASR 的错字；如果金标准也写「加能」，那么一个照抄转写的系统反而会得分。</p>
+
+    <h3>双重判定：时间窗与内容相似度必须同时成立</h3>
+    <p>一条预测要点算不算命中金标准？评测器要求两件事同时满足：时间戳在 ±15 秒内，且内容 bigram 相似度 ≥0.25。只有时间对不算——同一时刻可能有好几个话题；只有内容像也不算——整条视频都在聊相机，措辞相近的句子到处都是。</p>
+    <div class="formula">
+      <div class="eq">hit ⇔ |t<sub>pred</sub> − t<sub>gold</sub>| ≤ 15s &nbsp;<b>and</b>&nbsp; bigram(gold, pred) ≥ 0.25</div>
+      <small>每条金标准只能匹配一条预测（贪心取相似度最高），避免「一条金标准被多条预测重复认领」</small>
+      <p class="why">时间窗 15 秒与校验层的 ±15 秒对齐；相似阈值 0.25 略高于校验层的 0.22——评测比生产更严一点，避免把「擦边通过」算成命中。</p>
+    </div>
+    <p>由此得到四个指标：<strong>要点命中率</strong>（命中 / 19）、<strong>时间戳误差中位</strong>（命中的 |Δt| 中位数）、<strong>幻觉率</strong>（预测在 ±15 秒窗口里找不到支撑的比例）、<strong>视觉增益</strong>（4 条视觉点里命中几条）。前三个描述「说了什么」，最后一个专门描述「看见」。没有这第四个指标，「会看画面」就永远只是一个形容词。</p>
+
+    <h3>视觉增益为什么必须单独定价</h3>
+    <p>那 4 条视觉点不是随便挑的：SIGMA BF 的外观、全景无人机的解耦演示、GFX100RF 的屏幕价格、R6 III 的过热提示。它们的共同点是——字幕能给你型号和结论，给不了「看过」的证据。一个纯字幕系统可以把 19 条里的 15 条答得不错，但在这 4 条上会全部落空。</p>
+    <p>如果只报命中率，视觉能力会被字幕能力稀释：19 条里混着 4 条视觉点，字幕系统拿 15/19 也有 79%，看上去「挺好」。单独把 4 条拎出来做分母，视觉系统的得分才有意义；也才能在视觉缺席时诚实地显示 0/4，而不是让总分悄悄下滑几分。</p>
+    <div class="note"><b>那次实跑的视觉增益是 0/4。</b>因为视觉模型没有配置，跑的是 signals 模式；12 张证据帧存在，但没有一条语义笔记。评测结果里这一项是 0/4，不是「没测」。缺席被计入分母——这比任何一句「视觉可选」都诚实。</div>
+
+    <h3>夹具基线：能测的与测不了的</h3>
+    <p>在真实模型质量门跑通之前，仓库里有一份「本地夹具 + 模拟模型」的基线：12 份材料、120 条断言，覆盖冷启动、热缓存、重放、渠道故障四种场景。结果是：正向命中率 92.42%，数字保留率 57.02%，负向泄漏 0/22，质量门 1 份 pass、10 份 review。</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>指标</th><th>夹具基线（模拟模型）</th><th>它证明了什么 / 没证明什么</th></tr></thead>
+        <tbody>
+          <tr><td>正向命中率</td><td class="num">92.42%</td><td>证明管线能把给定事实带到报告里；不证明真实模型能做到</td></tr>
+          <tr><td>数字保留率</td><td class="num">57.02%</td><td>揭示「数字在摘要里最容易丢」；这是结构问题，不是模型问题</td></tr>
+          <tr><td>负向泄漏</td><td class="num">0 / 22</td><td>证明不该出现的内容不会被夹具模型带进来</td></tr>
+          <tr><td>质量门分布</td><td class="num">1 pass / 10 review / 0 fail</td><td>证明体检会亮黄灯；不证明内容正确</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>模拟模型的价值是<strong>测系统合同</strong>：检索对不对、时间戳贴不贴、覆盖账本记不记、质量门报不报警。它测不出「模型写得好不好」——这一点文件里写得很清楚：<code>真实模型质量 Gate 前保持未测</code>。把这两件事混在一起，是评测最常见的自欺。</p>
+
+    <h3>评测的自我防护：拒评、受控重跑、完整性哈希</h3>
+    <p>评测本身也会被污染。第一次 <code>--url</code> 全栈跑批就撞上渠道熔断：21 次调用失败 18 次，产出降级报告。<code>eval/run.py</code> 直接拒绝评分并退出——它的判断逻辑是：预测为空、报告开头写着「降级版」，就不是模型质量样本，不能进数据库。这次「失败」反而是一次成功：守卫按设计工作了。</p>
+    <p>后来有了受控重跑：不在真实视频上重烧 token，而是把已经保存的证据（字幕、时间轴、源材料哈希）喂给一个<strong>钉死的渠道</strong>，并给这次实验设预算：最多 37 次请求、请求间隔至少 5 秒、每类调用限额（map 25 / reduce 3 / reviewer 3 / writer 3）、并发 1、传输错误最多重试 12 次、内容失败绝不重试。跑之前和跑之后各算一次受保护文件的 SHA-256。</p>
+    <div class="code">
+      <div class="code-bar"><b>eval/results/xiaobai-…/requests.json</b><span>受控重跑（节选）</span></div>
+<pre><span class="s">"max_requests"</span>: <span class="n">37</span>, <span class="s">"min_gap_s"</span>: <span class="n">5.0</span>, <span class="s">"max_concurrency"</span>: <span class="n">1</span>,
+<span class="s">"automatic_retries"</span>: <span class="n">12</span>,
+<span class="s">"retry_scope"</span>: <span class="s">"transport HTTP 5xx/429/timeout only; content failures never retry"</span>,
+<span class="s">"physical_requests"</span>: <span class="n">8</span>, <span class="s">"stopped_reason"</span>: <span class="s">"HTTP 524: error code: 524"</span></pre>
+    </div>
+    <p>这次重跑在 8 次物理请求后被渠道的 524 掐断，状态记为 stopped，而不是「跑完了」。8 次请求、19,829 个 token、失败 3 次——这些数字都写进了 <code>usage.json</code>；完整性哈希在跑前跑后完全一致，证明评测过程没有偷偷改写源材料。这很枯燥，但它是「评测」和「演示」的分界线。</p>
+
+    <h3>3587 个测试：证明机器，不证明内容</h3>
+    <p>仓库现在有 144 个测试文件、<strong>3587 个用例</strong>（另有 19 个子测试），在本机跑完用了 242 秒，全部通过。它们覆盖的东西很具体：时间戳贴回、bigram 命中率、引文边界、OCR 交叉、覆盖账本、缓存键、路径穿越、并发锁、降级报告、评测计算……</p>
+    <p>这些测试能证明的是<strong>合同</strong>：给定这些输入，系统一定做出这些判断。它们不能证明内容正确——测试里的「模型」是模拟的，测试断言的是管线行为，不是语义质量。把这两者分开，是这套工程能持续迭代的原因：模型换了，合同不变；合同变了，测试先红。</p>
+
+    <div class="pull">一个可审计的产物，和一段有说服力的文字，是两种东西。<strong>前者允许你不同意，后者只要求你相信。</strong></div>
+
+    <h3>人类最后站在哪里</h3>
+    <p>报告页面上有三个东西一直在：每条要点的时间戳（点了能跳）、每条要点的证据（有就挂帧，没有就空着）、以及报告级的状态（pass / review / partial、覆盖是否完整、审核是否完成）。用户不需要相信 agent，只需要在几处可疑的地方点开原片核对——这就是「可追溯」的实际含义。</p>
+    <p>再往后是版本与重生成：同一期视频的多次生成收成一个家族，可以对比两版的差异、看哪一版补了证据、哪一版换了模型。人不是站在「点一下生成」的位置，而是站在「决定哪一版可以发出去」的位置。这是这条链最后一个、也是唯一一个不能自动化的环节。</p>
+
+    <figure class="fig">
+      <div class="frame"><img src="assets/art/audit-desk.webp" alt="纸鹤在暗色审计桌上给断言卡片盖章，一张绿章通过，一张红章驳回，旁边是放大镜与胶片" width="1280" height="768"/></div>
+      <figcaption><b>FIG. 05</b>审计桌：机器负责盖章（keep / repair / drop），人负责决定这份报告能不能发出去。</figcaption>
+    </figure>
+  </div>
+</section>

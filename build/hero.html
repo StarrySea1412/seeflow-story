@@ -1,0 +1,67 @@
+<header class="wrap masthead">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="6" width="17" height="12" rx="2" stroke="#8fb0c2" stroke-width="1.4"/><path d="M7 6V4.5h10V6" stroke="#8fb0c2" stroke-width="1.2"/><circle cx="12" cy="12" r="2.2" stroke="#e0533c" stroke-width="1.4"/><path d="M3.5 9.5h3M17.5 9.5h3M3.5 14.5h3M17.5 14.5h3" stroke="#8fb0c2" stroke-width="1"/></svg></span>
+    <span>造物手记 <small>VOL.05</small></span>
+  </div>
+  <div class="edition">
+    <span class="rec"><i class="rec-dot" aria-hidden="true"></i>SEE FLOW / 放映中</span>
+    <span>REEL 05 · 2026.10</span>
+  </div>
+</header>
+
+<section class="wrap hero">
+  <div>
+    <p class="eyebrow"><span>FIELD NOTES</span>一个视频理解 Agent 的解剖报告</p>
+    <h1>让 Agent<br/><em>亲眼看一眼</em><span class="sub">从「疑点」到「证据」再到「结论」——一条不许跳步的链</span></h1>
+    <div class="dek-wrap">
+      <p class="dek-tag">本片提要</p>
+      <p class="dek">所有视频总结工具都在做同一件事：把字幕丢给模型。可字幕是视频里分辨率最低的一层。这篇拆一个真的会看画面的 agent：它在哪里看、看完怎么记账、说错话时又是哪一行代码把它抓住。</p>
+    </div>
+    <div class="hero-meta">
+      <span class="pill"><b>3587</b> 个测试通过</span>
+      <span class="pill"><b>618</b> 条时间轴</span>
+      <span class="pill"><b>±20s</b> 回查窗口</span>
+      <span class="pill"><b>4h17m</b> 最长片长</span>
+    </div>
+  </div>
+  <figure class="art">
+    <div class="screen">
+      <div class="screen-img">
+        <img src="assets/art/hero.webp" alt="一只纸鹤坐在放映厅座椅扶手上，看着一块发光的屏幕；前景是一卷胶片，其中一格被红笔圈出" width="1152" height="832"/>
+        <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      </div>
+      <div class="tc-bar"><span><i class="dot"></i>SEE / 00:18:30</span><span class="tc">TC 00:01:51 &nbsp; FRAME 00012</span></div>
+    </div>
+    <figcaption><span><b>FIG. 00</b> 观影者：一只只有镜头的纸鹤</span><span>INK &amp; GOUACHE / 2026</span></figcaption>
+  </figure>
+</section>
+
+<section class="stats" aria-label="关键数字">
+  <div class="wrap stats-inner">
+    <div class="stat"><b>207<span>s</span></b><small>18 分钟视频整条流水线</small></div>
+    <div class="stat"><b>1.51<span>s</span></b><small>其中真正「看画面」的耗时</small></div>
+    <div class="stat"><b>195<span>s</span></b><small>写总结与程序化校验的耗时</small></div>
+    <div class="stat"><b>100<span>/101</span></b><small>4 小时长片实际完成的分段</small></div>
+  </div>
+</section>
+
+<div class="wrap opening">
+  <div class="prose">
+    <p class="lead">2026 年 9 月，我在一台 Windows 机器上第一次让 SeeFlow 跑完一条 18 分 30 秒的视频。整条流水线用了 207 秒：扫描镜头切换 9.55 秒，让 agent 决定看哪里并截帧「看」了 1.51 秒，剩下的 195.44 秒全花在写总结和校验上。这个比例几乎就是这篇文章的论点——<strong>让模型看一眼并不难，难的是让它看完之后，说出的每一句话都能被回查。</strong></p>
+    <p>「会看画面」在演示里是一个瞬间：抽一帧、发给视觉模型、得到一段像模像样的描述。在产品里它是一条链：什么值得看、看哪一帧、看完记在哪、记错了谁来抓、抓不干净时怎么诚实地说「这块我没看清」。链上任何一环松掉，画面理解都会退化成装饰。</p>
+    <p>这篇解剖 SeeFlow——一个把视频整理成可追溯知识库的 agent。它是「造物手记」系列里第一个<em>面向真实材料</em>的作品：不是讲抽象架构，而是把一条真实视频从下载到报告的每一步、每一个阈值、每一次失败摊开。文中所有任务编号都来自本机 <code>work/</code> 目录，代码摘录对应当前仓库实现，数字可以自己重跑核对。</p>
+    <p class="scope">阅读说明：全文约两万字（含代码摘录与图注），七章。<b>第 1、2 章</b>讲为什么必须看、看哪里；<b>第 3、4 章</b>是核心——证据结构、五层校验与一条真实要点的完整走查；<b>第 5、6 章</b>讲降级与长视频的真实失败；<b>第 7 章</b>讲怎么证明它真的在看。四枚小样都是确定性模型，参数与公式写在正文里。</p>
+  </div>
+
+  <p class="toc-head"><span>SCENE LIST / 场景表</span><span>07 CHAPTERS · 04 DEMOS</span></p>
+  <nav class="toc" aria-label="目录">
+    <a href="#ch1"><i>01 / 00:00</i><span>字幕之外<small>视频有一层看不见的信道，和字幕是两条不同的轨</small></span></a>
+    <a href="#ch2"><i>02 / 06:40</i><span>看哪里<small>注意力是一笔预算：三个信号、一条打分公式、三帧一组</small></span></a>
+    <a href="#ch3"><i>03 / 13:20</i><span>证据先于结论<small>数据结构怎么强迫「没有截图就没有结论」</small></span></a>
+    <a href="#ch4"><i>04 / 21:00</i><span>用代码杀死幻觉<small>bigram 回查、OCR 交叉、金句逐字校验、审核环</small></span></a>
+    <a href="#ch5"><i>05 / 31:30</i><span>打不过就降级<small>四档阶梯、随机方块测视觉、首字节竞速与站点熔断</small></span></a>
+    <a href="#ch6"><i>06 / 39:10</i><span>四小时是另一道题<small>101 个分段、100 条缓存、3.45% 支持率的现场</small></span></a>
+    <a href="#ch7"><i>07 / 48:00</i><span>怎么证明它真的在看<small>金标准、视觉增益、受控重跑与 3587 个测试</small></span></a>
+    <a href="#closing"><i>END / 56:00</i><span>结语：可以承认没看见<small>三条可以搬走的做法，以及这篇文没解决的问题</small></span></a>
+  </nav>
+</div>

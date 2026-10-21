@@ -1,0 +1,108 @@
+<section class="chapter" id="ch5">
+  <div class="ch-head">
+    <div class="ch-num">SCENE<b>05</b></div>
+    <div class="ch-title">
+      <h2>打不过就降级，但绝不空手</h2>
+      <p>视觉模型会挂、渠道会封、OCR 会缺席。一个能用的 agent 不是「永不失败」，而是失败时仍然交得出东西，并且说清楚自己交的是什么。</p>
+    </div>
+  </div>
+  <div class="ch-body">
+    <p class="lede">这条流水线最初的设计假设是「视觉模型在线」。两次真实的长任务把这个假设打穿了：一次是 18 分钟的片子，转写完成后最后一个视觉调用被中转站重置，任务死在终点前，20 分钟的转写白等；另一次是 4 小时的访谈，转写跑了 3.5 小时，到摘要阶段才发现整条渠道队列都挂了。修法不是写更长的重试，而是换一个问题——<strong>如果视觉永远不回来、模型永远不可用，这份报告还值不值得交？</strong></p>
+
+    <h3>四档阶梯：能力可以缺席，档位必须说清</h3>
+    <p>SeeFlow 把感知能力分成四档，每档对应一份诚实的能力清单：</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>档位</th><th>谁在提供理解</th><th>仍然保留的东西</th><th>报告怎么标注</th></tr></thead>
+        <tbody>
+          <tr><td><b>cloud-vlm</b></td><td>任意 OpenAI 兼容云视觉端点</td><td>语义画面笔记 + 证据帧 + OCR + 字幕</td><td>正常报告</td></tr>
+          <tr><td><b>local-vlm</b></td><td>本机 Ollama 视觉模型</td><td>同上，质量与速度取决于本地算力</td><td>正常报告</td></tr>
+          <tr><td><b>signals</b></td><td>不调用视觉模型：OCR + 镜头切换 + 弹幕 + 音频</td><td>证据帧 + 画面文字 + 信号，<em>没有语义叙述</em></td><td>标注「信号模式」</td></tr>
+          <tr><td><b>subtitle-only</b></td><td>只有字幕与文本模型</td><td>字幕、时间戳、要点；无画面证据</td><td>标注「纯字幕」</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>降级不是「关掉一个开关」，而是<strong>换一套承诺</strong>。在 signals 档，agent 仍然截帧、仍然 OCR、仍然把证据挂进时间轴——只是它不会说「画面里的人在演示云台」。那句叙述需要视觉模型；没有它，系统宁可留白，也不拿字幕去猜画面。代码注释写得很直白：</p>
+    <div class="code">
+      <div class="code-bar"><b>core/agent.py</b><span>perceive_points</span></div>
+<pre><span class="s">"""provider 为 None（信号模式/纯字幕档）时跳过语义理解，</span>
+<span class="s">但仍然截帧 + OCR —— 证据缩略图与画面文字是降级模式下照样存活的硬核价值。</span>
+<span class="s">视觉调用失败（网络/端点问题）不炸任务：重试一次后降级为无语义笔记继续。"""</span></pre>
+    </div>
+    <p>这也是为什么「降级不熄火」不是一句口号：证据帧与 OCR 是确定性工具，不依赖任何模型。它们能在最坏的情况下，仍然让读者点开原片核对。语义会缺席，地址不会。</p>
+
+    <h3>先证明它真的有视觉，再决定用不用</h3>
+    <p>把端点配成「视觉模型」不等于它真的能看图。大量中转站会把带图的请求悄悄丢掉、只回文本，或者干脆返回一段像模像样的幻觉。SeeFlow 的做法是发一张<strong>随机生成的题面图</strong>：白底，2 到 4 个随机颜色、随机位置的方块，要求模型数出数量并报出每个方块的颜色。提示词里不提任何颜色，答案不可预知，盲猜联合命中率低于 2%。</p>
+    <div class="code">
+      <div class="code-bar"><b>core/probe.py</b><span>设计注记</span></div>
+<pre><span class="c"># 旧做法是「8x8 纯红方块 + What color is this square?」——题面过于简单，</span>
+<span class="c"># "red" 是盲猜命中率最高的答案，而且文本探测的提示词里直接写了"这是一张</span>
+<span class="c"># 纯红色方块图"，等于把答案递给了没有视觉的模型。</span>
+<span class="c"># 现在：随机白底 + 2~4 个随机位置/随机颜色的方块，问数量 + 每个颜色。</span>
+<span class="c"># 答案不可预知、提示词不提任何颜色，盲猜联合命中率 &lt; 2%。</span></pre>
+    </div>
+    <p>探测超时从 15 秒放宽到 90 秒，也是一次真实的教训：中转站处理一张图实测要 36 到 52 秒（同端点纯文本 14.9 秒）。旧的 15 秒会把「真有视觉但慢」的端点<em>静默降级</em>到信号档——不报错，只表现为「没有画面理解」。一个超时值就能把能力悄悄关掉，而用户毫无察觉。现在默认 90 秒：没有视觉的端点会立刻报错，不受影响；慢端点才有机会被救回来。</p>
+
+    <h3>模型全挂的时候，交一份「观看记录」</h3>
+    <p>四档之外还有第五种状态：所有文本模型也挂了。这时 <code>degraded.py</code> 会写一份降级报告：完整的观看时间轴（影视飓风那条降级件里是 <strong>620 条</strong>），每条带时间戳与字幕；所有证据帧用标准 Markdown 图片语法内嵌；开头明确写「AI 总结暂未生成，原因是什么，端点恢复后重跑同一链接，视频与转写走缓存，30 秒内出完整省流」。</p>
+    <p>这份报告没有「 AI 观点」，但它不是零。用户可以立刻搜索字幕、按时间跳转、看截图；等渠道恢复，重跑不需要重新下载、不需要重新转写。设计原则只有一句：<strong>绝不空手而归——用户的时间不能因为一次端点故障而全部浪费。</strong></p>
+
+    <figure class="fig">
+      <div class="frame"><img src="assets/art/ladder.webp" alt="纸鹤沿着四层阶梯下行，每层屏幕逐渐变暗，最底层仍有一张发光的取景框" width="1280" height="768"/></div>
+      <figcaption><b>FIG. 04</b>四档阶梯。越往下语义越少，但最底层仍留着一张能点回原片的帧。</figcaption>
+    </figure>
+
+    <h3>传输失败与内容失败，不是一回事</h3>
+    <p>「重试」这个词经常把两件事混在一起。502、429、超时是<strong>传输失败</strong>：请求没到达或没返回，重试是合理的。模型返回了 200，但内容是空要点、编造的时间戳、不完整的 JSON，这是<strong>内容失败</strong>：再重试同一个提示词，只是在赌随机数。SeeFlow 的策略在不同层面对待它们：</p>
+    <ul>
+      <li><strong>首字节竞速</strong>：只用在「第一次读骨架」这类首字节关键的调用上——同时向 2 个健康候选发起同一个请求，第一个能解析成 JSON 的获胜，<em>胜者即返，不等慢候选</em>。实测过一次 8 秒的胜者被 30 秒的慢渠道拖到 18.6 秒才返回，所以落选者只读已完成结果、绝不阻塞等待。落选渠道的计费响应照实记账，标记「竞速落选」，不混进正常用量。</li>
+      <li><strong>同站只留一个候选</strong>：一次真实事故里，保底队列包含同一网关的多个模型条目，轮换让同一 host 在 60 秒内收到 5 种不同模型，正好踩中中转站的「bulk probe guard」——21 次调用失败 18 次，IP 被封。修复是 host 去重，从根上不再制造「模型多样性」特征。常规调用是顺序 failover，最多 3 个候选，不再全队并发。</li>
+      <li><strong>进程级熔断</strong>：同一 host 连续失败 2 次 → 熔断 120 秒；冷却后只放<strong>一个</strong>半开探针，成功才恢复。跨任务、跨分块生效，坏站不会被每个分段重新试一遍。</li>
+      <li><strong>同站并发上限 2</strong>：map 并行 4 个 worker，但落到同一个 host 的文本/视觉请求最多 2 个并发，避免自己把自己打成风控对象。</li>
+      <li><strong>内容失败不重试</strong>：受控重跑脚本里写明 <code>retry_scope: transport HTTP 5xx/429/timeout only; content failures never retry</code>，并把 <code>json_repair</code> 置为 False——连「首轮非 JSON 时原地再修一次」都不允许。返回了但过不了校验的要点，直接丢弃并计入覆盖失败，不赌第二次。</li>
+    </ul>
+    <p>最后这条听起来很浪费，其实是在保护评测的可信度：如果内容失败也自动重试，「命中率」就变成了「重试次数」的函数，不同模型之间的比较失去意义。第 7 章会看到，这套纪律是怎么把一次评测跑成可复现的实验的。</p>
+
+    <p>下面这枚小样把四档阶梯摊开。点选档位、切换 OCR 是否安装、切换探测超时，看每一档实际能保住哪些东西；「报告会怎么写」那一行，是系统对用户的承诺，不是营销文案。</p>
+  </div>
+
+  <div class="demo" id="demo-ladder">
+    <div class="demo-head">
+      <span class="demo-tag">DEMO 03</span>
+      <span class="demo-title">降级阶梯 <span class="hint">点选档位，看承诺如何缩水、什么仍然保留</span></span>
+    </div>
+    <div class="demo-body">
+      <div class="ladder" id="ladder">
+        <button class="rung" data-tier="cloud" data-on="true">
+          <span class="no">01</span>
+          <span class="lbl"><b>云视觉模型</b><small>任意 OpenAI 兼容端点 · 语义笔记</small></span>
+          <span class="st">当前</span>
+        </button>
+        <button class="rung" data-tier="local" data-on="false">
+          <span class="no">02</span>
+          <span class="lbl"><b>本地视觉模型</b><small>Ollama · 不出网，速度看机器</small></span>
+          <span class="st">备用</span>
+        </button>
+        <button class="rung" data-tier="signals" data-on="false">
+          <span class="no">03</span>
+          <span class="lbl"><b>信号模式</b><small>OCR + 镜头切换 + 弹幕 + 音频 · 无语义叙述</small></span>
+          <span class="st">兜底</span>
+        </button>
+        <button class="rung" data-tier="subs" data-on="false">
+          <span class="no">04</span>
+          <span class="lbl"><b>纯字幕</b><small>只有文字轨 · 无画面证据</small></span>
+          <span class="st">最后</span>
+        </button>
+      </div>
+      <div class="controls" style="border-top:0;padding-top:0">
+        <label class="switch"><input id="ladder-ocr" type="checkbox"/>本机装了 PaddleOCR</label>
+        <label class="switch"><input id="ladder-slow" type="checkbox" checked/>视觉端点很慢（36–52s）</label>
+        <label class="switch"><input id="ladder-timeout" type="checkbox" checked/>探测超时 90s（否则 15s）</label>
+      </div>
+      <div class="retention" id="ladder-ret"></div>
+      <div class="mode-line"><span>报告标注：<b id="ladder-mode">cloud-vlm</b></span><span id="ladder-verdict">语义 / 证据 / 文字三条轨齐全</span></div>
+      <div class="warning-list" id="ladder-warnings"></div>
+    </div>
+    <div class="demo-foot"><b>模型</b> 以 618 条时间轴、4 个疑点、12 张帧为基数；视觉在线时假设 4 个疑点各产出 1 条已确认笔记，OCR 在线时假设 96 条记录含画面文字（示意值，按真实任务量级设定）。梯档选择与提示文案对应 core/agent.py、providers/detect.py、core/degraded.py。</div>
+  </div>
+</section>

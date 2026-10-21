@@ -1,0 +1,115 @@
+<section class="chapter" id="ch6">
+  <div class="ch-head">
+    <div class="ch-num">SCENE<b>06</b></div>
+    <div class="ch-title">
+      <h2>四小时是另一道题</h2>
+      <p>18 分钟和 4 小时不是同一个问题。分段、缓存、覆盖账本、审核预算——长度会把每一个「差不多」放大成事故。</p>
+    </div>
+  </div>
+  <div class="ch-body">
+    <p class="lede">最长的真实任务是一条 4 小时 17 分的访谈：孙宇晨谈 AI 时代的年轻人。15426 秒，2758 条时间轴记录，切成 <strong>101 个 150 秒的分段</strong>。整条任务在缓存命中后只用了 201.5 秒跑完——但这份「快」很容易被误读：101 段的归并结果里有 <strong>94 段来自 map 缓存</strong>，剩下 7 段重新归并，而「总结与校验」这一步本身仍然吃掉了 186.6 秒。真正值得看的是账本：<strong>100 段成功，1 段失败，29 条要点，31 条断言里只有 5 条完成了审核，点支持率 3.45%。</strong></p>
+    <p>这份报告是「部分成功」的典型。它没有崩，也没有假装完整；它把「哪里没做完」写在了结构化字段里。本章就拆这个账本。</p>
+
+    <h3>为什么是 150 秒</h3>
+    <p>分段长度是一个三方折中：太短，段间上下文断裂，模型只能看到零碎句子；太长，单次调用的输出容易变成复述，校验窗口也会变宽。150 秒大约对应 600 到 900 字的口语，正好是一段完整的「小话题」，又不至于让 map 阶段的输出爆掉。4 小时切成 101 段，每段 4 个 worker 并行，失败隔离在单段。</p>
+    <p>map 的结果不是直接进 reduce。100 段 × 平均十几条要点，会到一千多条 bullets；reduce 一次吃不下，于是有分层压缩：超过 360 条先按每批 120 条压缩到 12 条，再把压缩结果交给 reduce。</p>
+    <div class="formula">
+      <div class="eq">bullets &gt; 360 → batch 120 → keep 12 → reduce</div>
+      <small>_CONDENSE_THRESHOLD / _CONDENSE_BATCH / _CONDENSE_KEEP；reduce 端另有 40 条要点硬上限</small>
+      <p class="why">压缩不是无损的。每批 120 条压到 12 条，意味着 90% 的细节被丢；保留的是分数最高的（有证据、有数字、时间靠前）。这是一种有意的取舍：4 小时视频的报告不应该是一千条要点，而应该是一份能读完的摘要，加一份可检索的时间轴。</p>
+    </div>
+    <p>把这条长片的文字量算一遍就更清楚了。2758 条字幕合计 7.13 万字符，折合约 4.3 万 token——一次性塞进 reduce 勉强可行，但输出预算会被挤到危险区。切成 150 秒后，每段的字幕中位数只有 716 字符（约 430 token），map 的输出上限很宽裕；100 段要点汇总起来再过一遍分层压缩，reduce 只需要面对几十条高度浓缩的候选。这也解释了「为什么 150 秒」不是拍脑袋：它是让<strong>单段输入</strong>和<strong>全局输出</strong>同时落在安全区间的那个点。</p>
+
+    <h3>熔断：不要让 101 个分段逐个去撞死站</h3>
+    <p>长视频最贵的不是模型调用，是<strong>时间</strong>。一次真实事故：4 小时的视频转写跑了 3 个半小时，到摘要阶段发现所有渠道都挂了，接着 101 个分段逐个失败——每个都等超时。用户等了近 4 小时，最后什么也没拿到。</p>
+    <p>修复是 map 层的渠道熔断：开局连续失败 5 段且没有任何一段成功，直接中止剩余分段，把失败写进覆盖账本。配合进程级 host 熔断（连续 2 次失败冷却 120 秒），坏站不会在每个分段被重新发现一次。这不是「更努力」，是「更早知道努力没用」。</p>
+    <div class="code">
+      <div class="code-bar"><b>core/summary.py</b><span>map_all</span></div>
+<pre><span class="c"># 渠道熔断：开局连续失败且无一成功时中止剩余分段——渠道全挂时 101 段逐段空跑</span>
+<span class="c"># 只会把失败拖长一个数量级（实测 4h 视频转写 3.5h 后才发现摘要出不来）。</span>
+_MAP_CHANNEL_BREAKER = <span class="n">5</span></pre>
+    </div>
+
+    <h3>覆盖账本：把「没做完」写成数据</h3>
+    <p>分段任务的返回值不是「成功/失败」，而是一份覆盖表：请求了多少段、完成多少、失败多少、每一段的状态、要点数、失败原因。这份表会跟着 reduce 的提示词一起走：</p>
+    <div class="code">
+      <div class="code-bar"><b>core/summary.py</b><span>_missing_coverage_hint</span></div>
+<pre><span class="k">if</span> missing:
+    ranges = <span class="s">"、"</span>.join(<span class="s">f"{row['start']:g}~{row['end']:g}秒"</span> <span class="k">for</span> row <span class="k">in</span> missing)
+    <span class="k">return</span> <span class="s">f"\n以下分段尚未生成有效要点：{ranges}。"</span>
+           <span class="s">"只能总结已给材料，明确覆盖不完整，不推测这些缺失内容。"</span></pre>
+    </div>
+    <p>这句话在对抗模型的补全本能。给它一段 4 小时的记录、告诉它「总结一下」，它会自动把缺口填平——用一种听上去很合理的方式。明确告知「这些时段没有材料，不许推测」，是在把「不知道」重新变成一个合法的输出。</p>
+    <p>那次任务的覆盖表是 101 请求 / 100 完成 / 1 失败。缺的那一段在报告里变成 <code>summary_coverage.status = partial</code>，同时触发质量门的 <code>coverage_incomplete</code> 警告。读者看到的是「覆盖不完整」四个字，而不是一段编出来的过渡。</p>
+
+    <h3>审核预算：31 条断言，只审了 5 条</h3>
+    <p>第 4 章说过审核要花钱。4 小时任务的审核预算只够覆盖 5 条断言，剩余 26 条被标成「未完成核查」。报告的状态是 <code>review_status = partial</code>，并列出具体序号；质量门再补一条 <code>review_incomplete</code> 警告。全过程没有把「未审」写成「已过」。</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>指标</th><th>4h17m 任务（010f4e2c2eb5）</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>时间轴记录</td><td class="num">2758</td><td>字幕为主，视觉轨为空（未配置视觉模型）</td></tr>
+          <tr><td>分段</td><td class="num">101 / 100 完成 / 1 失败</td><td>150 秒一段；94 段命中 map 缓存</td></tr>
+          <tr><td>要点</td><td class="num">29</td><td>reduce 上限 40，模型给了 29</td></tr>
+          <tr><td>断言审核</td><td class="num">5 / 31</td><td>状态 partial，26 条未核查</td></tr>
+          <tr><td>点支持率</td><td class="num">1 / 29 = 3.45%</td><td>与回填原话 bigram ≥0.25 的比例；改写多，逐字少</td></tr>
+          <tr><td>金句</td><td class="num">1 保留 / 11 拒绝</td><td>逐字校验；拒因写入 rejected_quotes</td></tr>
+          <tr><td>质量门</td><td class="num">0 error / 4 warning / review</td><td>体检而非判决；不删内容</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>这张表值得反复看。它同时说明了三件事：长视频的流水线能跑完；跑完不等于审完；审不完会被如实记录。很多人做 agent 产品时，最怕的就是这张表——它不好看。但正是这张表让「3.45%」不会变成一个营销数字，而是一个可以复查的审计线索。</p>
+
+    <h3>另一种失败：模型返回了，但过不了校验</h3>
+    <p>小白评测那条 587 秒的视频，走的是另一条路径。4 个分段里 3 个失败，失败原因统一是：<code>模型返回了响应，但没有通过文字与时间戳校验的可用要点</code>。也就是说，模型确实回了 JSON，但里面的要点要么时间戳贴不回，要么内容与字幕对不上，被 map 层全部拒绝。</p>
+    <p>系统没有把这 3 段「尽力保留」，而是让它们空着，覆盖表记为 3 failed。报告仍然生成了 37 条要点、3 个章节、12 条金句——全部来自成功的那 1 段。之后用户重新生成报告时，补帧器从缓存视频里补了 12 张证据帧（7.08 秒），把这份「只有三分之一覆盖」的报告重新挂上了画面证据。整次重新生成 120.75 秒。</p>
+    <div class="note"><b>空着比编好。</b>如果 map 层对「没通过校验的要点」宽容一点，这 3 段会贡献几十条听起来合理、但无法回查的要点。报告会更丰满，也更不可信。SeeFlow 的选择是让报告变薄，然后把「薄」标出来。</div>
+
+    <h3>缓存不是捷径，是钉住的实验条件</h3>
+    <p>4 小时任务的 201.5 秒很容易被误读成「性能」。实际上 94 段命中 map 缓存，真正的开销在剩下 7 段归并、reduce 分层压缩与五层校验上。缓存键不是「视频 + 分段」，而是<strong>分段内容 + prompt + system + 后端身份（base_url / key / model / role / api_format）+ 所有 ASR 不确定标注</strong>。换模型、换提示词、换渠道、甚至转写里的低置信词变了，缓存都会失效。</p>
+    <p>这是评测纪律的一部分：缓存让「同一条件重跑」变快，但不允许「换了条件还复用旧结果」。第 7 章的受控重跑之所以可信，前提就是这类缓存键把实验条件钉死了。</p>
+
+    <p>下面这枚小样是长视频的覆盖账本。拖动分段长度与失败率，看 101 格如何变化、报告会多出哪些警告；「诚实披露」开关可以让你看到：关掉它，报告会显得更完整，但缺口就没人知道了。</p>
+  </div>
+
+  <div class="demo" id="demo-coverage">
+    <div class="demo-head">
+      <span class="demo-tag">DEMO 04</span>
+      <span class="demo-title">覆盖账本 <span class="hint">4h17m / 2758 条记录的 101 格现实</span></span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl">
+          <label for="cov-chunk">分段长度 <b id="cov-chunk-v">150s</b></label>
+          <input id="cov-chunk" type="range" min="60" max="300" step="10" value="150"/>
+        </div>
+        <div class="ctl">
+          <label for="cov-fail">分段失败率 <b id="cov-fail-v">1%</b></label>
+          <input id="cov-fail" type="range" min="0" max="20" step="1" value="1"/>
+        </div>
+        <div class="ctl">
+          <label for="cov-cache">缓存命中率 <b id="cov-cache-v">93%</b></label>
+          <input id="cov-cache" type="range" min="0" max="100" step="1" value="93"/>
+        </div>
+        <label class="switch"><input id="cov-disclose" type="checkbox" checked/>把覆盖缺口写进报告</label>
+      </div>
+      <div class="cov-grid">
+        <div>
+          <div class="chunks" id="cov-chunks" aria-label="分段覆盖网格"></div>
+          <div class="warning-list" id="cov-warnings"></div>
+        </div>
+        <div class="cov-side">
+          <div class="row"><span>时长</span><b>15,426s</b></div>
+          <div class="row"><span>请求分段</span><b id="cov-req">101</b></div>
+          <div class="row"><span>完成</span><b id="cov-done">100</b></div>
+          <div class="row"><span>失败</span><b id="cov-failed">1</b></div>
+          <div class="row"><span>覆盖状态</span><b id="cov-status">partial</b></div>
+          <div class="row"><span>质量门</span><b id="cov-gate">review</b></div>
+          <div class="legend"><span><i style="background:#7caea6"></i>缓存命中</span><span><i style="background:#38665f"></i>本次新完成</span><span><i style="background:#a8442f"></i>失败</span></div>
+          <p class="hintline" id="cov-note" style="margin-top:10px">失败段的位置按确定性间隔分布，不是随机；真实任务里 1 段失败。</p>
+        </div>
+      </div>
+    </div>
+    <div class="demo-foot"><b>模型</b> chunks = round(15426 / (分段长度 + 2.5))——真机分段边界落在字幕条目上，每段实际跨度略大于标称值；该式在 60/120/150/300s 上分别复现实测的 244/125/101/51 段。失败数 = round(chunks × 失败率)，按等距落点分布。缺失区间由失败段边界计算；覆盖状态 partial 时报告必须出现 coverage_incomplete 警告（诚实披露关闭时，警告被压制但覆盖表仍然存在）。</div>
+  </div>
+</section>

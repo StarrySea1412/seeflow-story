@@ -1,0 +1,39 @@
+<section class="chapter" id="closing">
+  <div class="ch-head">
+    <div class="ch-num">END<b>00</b></div>
+    <div class="ch-title">
+      <h2>结语：可以承认没看见</h2>
+      <p>「看见」不是一句形容词，是一串可以被复查的地址。</p>
+    </div>
+  </div>
+  <div class="epilogue">
+    <p class="lead">把这条链收拢，它其实只有三步：<strong>决定看哪里</strong>（注意力预算）、<strong>把看见的记成带地址的证据</strong>（时间轴 + 帧）、<strong>让每一句结论都能被代码或人回查</strong>（校验、审核、状态）。三步里没有一步依赖模型「更聪明」；它们依赖的是把不确定性放在正确的层——模型负责观察和表达，代码负责对账，状态机负责承认没做完。</p>
+    <p>这也是 SeeFlow 和「字幕总结工具」最根本的区别。后者把不确定性藏在流畅的文字里；前者把它摊在时间轴、覆盖表、审核状态和证据帧里。摊开之后，报告可能变薄，但变薄的每一页都能点回去。</p>
+
+    <h3 style="font-size:22px;margin:34px 0 8px">三条可以搬走的做法</h3>
+    <div class="rules">
+      <div class="rule"><b>RULE 01 / 结构先于提示</b><p>需要模型遵守的约束，尽量写进数据结构和构造函数，而不是提示词。证据为空就拒绝写入、时间戳贴不回就丢弃、引文找不到原话就拒绝——这些判断不需要模型配合，也不会被更长的上下文说服。</p></div>
+      <div class="rule"><b>RULE 02 / 能判定的交给代码，不能判定的交给状态</b><p>时间戳、引文、覆盖、缓存身份是可判定的，用确定性检查；语义是否误读、改写是否漂移不可判定，用独立审核 + <code>review</code> / <code>partial</code> 状态，让人来决定。不要把不可判定的问题伪装成 0/1。</p></div>
+      <div class="rule"><b>RULE 03 / 降级要换承诺，不要假装无损</b><p>没有视觉就明确说「信号模式」，没有审完就说「partial」，只补了时间分布就说「不代表视觉语义已验证」。降级不是把功能打个折继续吹，而是换一份更小、但每一条都成立的承诺。</p></div>
+    </div>
+
+    <h3 style="font-size:22px;margin:34px 0 8px">这篇文没解决的问题</h3>
+    <div class="limits">
+      <p><b>评测集太小。</b>真正带金标准的真实用例只有一条 18 分钟视频，外加 12 份夹具材料。19 条要点 + 4 条视觉点足以暴露问题，不足以证明泛化。教程、访谈、直播、竖屏短视频都还没有独立的金标准。</p>
+      <p><b>视觉覆盖仍然稀疏。</b>18 分钟 12 帧，是「抽样」不是「看完」。启发式注意力会漏掉没人指的画面；补帧只补时间分布，不补语义。视觉增益在真实运行里仍然是 0/4——不是指标坏了，是能力确实缺席。</p>
+      <p><b>审核预算不够。</b>4 小时任务只审了 5/31 条断言。要么提高预算（更贵、更慢），要么把审核做成分层抽样（先审高风险条目）。现在只是把「没审完」如实标出来，还没有解决它。</p>
+      <p><b>评测的幻觉率与校验层共用同一种相似度。</b>这是循环论证：用 bigram 判「有没有依据」，再用 bigram 判「幻觉率高不高」。它能抓住明显的编造，抓不住「用真实的词说错的话」。独立验证需要人工抽检或异构模型，目前只有金标准这一层是真正独立的。</p>
+      <p><b>对源头的错误无能为力。</b>ASR 把型号听错、作者自己说错、字幕与画面矛盾——系统只能记录不一致，不能替你做事实核查。它不是 truth machine，是一台「可回查的整理机」。</p>
+    </div>
+
+    <h3 style="font-size:22px;margin:34px 0 8px">制作说明</h3>
+    <p style="font-size:13.5px;color:var(--muted)">本文是「造物手记」第五篇，主题来自 SeeFlow 仓库的真实实现与真实任务目录。正文里的任务编号（<code>f1b818c4</code>、<code>010f4e2c2eb5</code>、<code>e1518f997fb5</code>）都可以在本机 <code>work/</code> 下查到原始 <code>timing.json</code>、<code>timeline.json</code>、<code>result.json</code>；代码摘录保留了原注释与常量。四枚小样全部是确定性模型：同一组参数永远得到同一组结果，公式写在正文与脚注里。插图五张由 GPT 系图像模型生成；字体为 LXGW 文楷子集；页面零构建、零依赖，单文件交付。</p>
+
+    <div class="links">
+      <a href="https://github.com/StarrySea1412/seeflow">SeeFlow 源码 →</a>
+      <a href="https://starrysea1412.github.io/agent-kernel/">上一篇：Agent 内核 →</a>
+      <a href="https://starrysea1412.github.io/agent-memory/">Agent 记忆 →</a>
+      <a href="https://starrysea1412.github.io/agent-design/">设计一个 Agent →</a>
+    </div>
+  </div>
+</section>

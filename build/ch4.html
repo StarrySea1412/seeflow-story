@@ -1,0 +1,195 @@
+<section class="chapter" id="ch4">
+  <div class="ch-head">
+    <div class="ch-num">SCENE<b>04</b></div>
+    <div class="ch-title">
+      <h2>用代码杀死幻觉——能杀的和不能杀的</h2>
+      <p>校验层不是「再问一次模型」。它是四个不调用模型的检查，加一个换了上下文的审核员，再加一条允许说「不够」的状态机。</p>
+    </div>
+  </div>
+  <div class="ch-body">
+    <p class="lede">幻觉有很多种。时间戳编造、画面文字编造、把相邻段落的事拼到另一个人身上、把「大概」写成「确定」、把一段合理的推断写成「视频里说的」。这些错误的共同点是：它们都能被某种<strong>确定性检查</strong>抓住，只要数据在生成时就留好了锚点。</p>
+    <p>SeeFlow 的校验不是单一环节，而是五层，从生成前一直延伸到报告落地。下面按执行顺序拆。</p>
+
+    <h3>第一层：时间戳只能贴回，不能生成</h3>
+    <p>模型最常见的越界是时间。它被要求引用输入里的 <code>t=602</code>，但很容易写成 <code>t=600</code> 或干脆凭印象给一个 <code>09:45</code>。SeeFlow 的处理不是「提醒模型注意」，而是在解析时<strong>把每个时间戳贴回输入里真实存在的时间点</strong>：</p>
+    <div class="code">
+      <div class="code-bar"><b>core/summary.py</b><span>_match_t</span></div>
+<pre><span class="k">def</span> <span class="f">_match_t</span>(t, valid_ts: set[float], tol: float = <span class="n">1.0</span>) -> float | <span class="k">None</span>:
+    <span class="s">"""LLM 引用的时间戳必须贴回输入中的某个真实 t（±tol 容差，贴最近的真实 t），</span>
+<span class="s">    否则视为编造。map 层容差 1s（原样引用），reduce 层 15s（章节级归并）。"""</span>
+    best = <span class="f">min</span>(times, key=<span class="k">lambda</span> v: (abs(t - v), v))
+    <span class="k">return</span> best <span class="k">if</span> abs(t - best) &lt;= tol <span class="k">else</span> <span class="k">None</span></pre>
+    </div>
+    <p>两个容差对应两种任务。map 层是「从这段字幕里摘要点」，时间必须原样引用，容差 1 秒；reduce 层是「把 100 段要点合成章节」，章节起点允许归并误差，容差 15 秒。超出容差的时间戳不是被「修正」，而是被丢弃——因为系统没有依据判断模型想指的是哪一秒。</p>
+    <p>这一步把「时间戳幻觉」从生成问题降级成了格式问题。模型仍然可以选错时间，但它不能发明时间。</p>
+
+    <h3>第二层：bigram 回查，三种判决而不是一种</h3>
+    <p>时间贴回去了，内容对不对？校验层取断言时间 ±20 秒内的字幕、OCR、已确认视觉笔记，拼成一段语料，然后算断言的 <strong>bigram 命中率</strong>：把断言和语料都切成相邻两字（中英混排一视同仁），看断言里的二字组有多少出现在语料里。</p>
+    <div class="formula">
+      <div class="eq">hit = |grams(claim) ∩ grams(source)| / |grams(claim)|</div>
+      <small>grams(s) = 去掉标点后的小写字符串的全部相邻二字组；阈值 MIN_RATIO = 0.22，窗口 WINDOW = 20s</small>
+      <p class="why">为什么是 0.22？因为写手要点是<em>综合改写</em>，不是原话引用。最初用 0.34，实测一条 18 分钟视频的 9 条要点被砍到 2 条、6 个章节全灭——真要点被误杀。0.22 是实测出来的下限：既能挡住编造，又不至于把「把三句话归纳成一句」当成幻觉。</p>
+    </div>
+    <p>判决有三种，不是「留/删」两种：</p>
+    <ul>
+      <li><strong>keep</strong>——窗口内命中率达标，时间不动；</li>
+      <li><strong>repair</strong>——窗口内不达标，但全时间轴搜索找到另一段更匹配的语料，时间改到那里；</li>
+      <li><strong>drop</strong>——全时间轴都找不到依据，删除。</li>
+    </ul>
+    <p><code>repair</code> 是这套校验里最实用的设计。模型的断言往往是真的，只是时间漂了——比如把「10:02 的过热测试」写成了「09:45 的总结段」。如果只有 keep/drop，这类真话会被误杀；有了 repair，它会被搬回正确的位置。全轴搜索是惰性构建的索引，只有窗口失败时才付这笔成本——4 小时视频的 2758 条记录，全量算一遍并不便宜。</p>
+    <p>还有一个容易被忽略的快路径：如果断言与某条保存的原文<strong>整句逐字相同</strong>，系统直接用二分查找定位，不走 bigram。逐字引用比词袋更强的锚点，尤其是同一句话在片子里出现两次时，只有唯一命中才采信。</p>
+
+    <h3>第三层：OCR 交叉——「画面写着」必须真的写着</h3>
+    <p>视觉模型最容易编的不是物体，是<strong>画面文字</strong>。它会把字幕里的「能效提升 50%」顺手写成「屏幕上写着 50%」，而屏幕上可能什么都没有。反制很直接：视觉笔记必须附带 <code>quoted_text</code>，每个引文都要在同帧 OCR 结果里找到（归一化后的子串匹配），否则整条笔记标记 <code>unconfirmed</code>。</p>
+    <div class="code">
+      <div class="code-bar"><b>core/verify.py</b><span>cross_check_visual</span></div>
+<pre><span class="k">for</span> q <span class="k">in</span> v.quoted_text:
+    <span class="k">if</span> _norm(q) <span class="k">not in</span> ocr_norm:
+        v.unconfirmed = <span class="k">True</span>
+        downgraded += <span class="n">1</span></pre>
+    </div>
+    <p>这个检查很便宜（纯字符串），也很狠。但它有明确的失效模式：OCR 本身会错。字幕被压缩、字体太细、背景太亮，OCR 都可能把「佳能」识别成「加能」，这时模型正确的引文反而会被标成未确认。系统选择接受这种误伤——因为把一条真笔记标成「未确认」的代价，远小于把一条编造的画面文字当成事实写进报告。误伤的笔记仍然留在时间轴上，读者能看到，只是它不参与断言背书。</p>
+
+    <h3>第四层：金句逐字校验，连数字和单位一起对</h3>
+    <p>「金句」是报告里最容易被滥用的板块：模型喜欢把一句听起来漂亮的话写成「他说」。SeeFlow 对金句单独设了一道更严的关卡：引文必须在<strong>有界连续的字幕段</strong>里逐字出现，允许跨段拼接，但段间间隙不超过 2 秒，最多 8 段、600 字符；匹配必须落在词的边界上，不能把「12」从「1200」里切出来，也不能把「50%」匹配到「150%」。</p>
+    <div class="code">
+      <div class="code-bar"><b>core/source_quotes.py</b><span>边界条件</span></div>
+<pre>MAX_SEGMENTS = <span class="n">8</span>      <span class="c"># 最多跨 8 条连续字幕</span>
+MAX_CHARS    = <span class="n">600</span>    <span class="c"># 引文总长上限</span>
+MAX_GAP      = <span class="n">2.0</span>    <span class="c"># 段间最长静默 2 秒</span>
+LOCAL_RADIUS = <span class="n">90.0</span>   <span class="c"># 先在同一时刻 ±90s 内找，找不到再全轴</span>
+REJECTION_REASON = <span class="s">"未能在有界连续原始字幕中找到逐字原话，不能作为金句。"</span></pre>
+    </div>
+    <p>效果可以用那次 4 小时 17 分的任务看：模型给了 12 条金句候选，逐字校验后<strong>只保留 1 条，11 条被拒</strong>，拒因统一记录在报告的 <code>rejected_quotes</code> 里。这不是模型突然变差，而是长视频的章节归并更容易把「概括」写成引号；逐字校验把引号重新变成了承诺。</p>
+
+    <h3>第五层：换一个上下文来审，但只让它杀两类错</h3>
+    <p>前四层都是纯代码，它们能抓「与记录不符」，抓不了「读起来像真的但语境错了」。所以还有一次独立的 LLM 审核：审核员拿到草稿和时间轴原始记录（字幕/OCR/已确认画面笔记），在全新上下文里逐条判断。它的系统提示被刻意写得很窄：</p>
+    <div class="code">
+      <div class="code-bar"><b>core/reviewer.py</b><span>REVIEWER_SYSTEM（节选）</span></div>
+<pre><span class="s">"逐条核对，只剔除两类问题：① 与原始记录直接矛盾；</span>
+<span class="s">② 提到记录中完全不存在的具体实体（产品名/数字/人名是编的）。"</span>
+<span class="s">"要点是对多句字幕的综合归纳（措辞不必与原话相同）是正常的……"</span>
+<span class="s">"材料不足用 ok=null、basis=insufficient，不删除、不猜测修正。"</span>
+<span class="s">"无论记录是否完整，只有实际展示的原话与断言直接矛盾，才可用 ok=false。"</span></pre>
+    </div>
+    <p>这段提示词在对抗审核员自己的两种本能：一是「没找到就判错」，二是「顺手帮我改好」。前者会把真话删光，后者会把审核变成第二次创作。所以系统规定：材料不足只能标 <code>insufficient</code>，不能删；只有拿到<strong>直接反证</strong>才能判 <code>contradiction</code>；修正建议必须给出反证原话和记录编号。写手随后只改审核员点名的条目，改完还要再过一次独立复核；最后程序化兜底：修订稿里的时间戳必须仍贴回真实记录 ±15 秒，越改越空则弃用修订、保留原文。</p>
+    <p>这里有一个现实限制：审核也要花 token、花时间。4 小时那条任务里，31 条断言只审了 5 条，报告的 <code>review_status</code> 是 <strong>partial</strong>，并明确列出 26 个「未完成核查」的序号。系统没有把「没审完」包装成「通过」。这是第 6 章要展开的诚实账本。</p>
+
+    <h3>案例：一条真实要点走完五层</h3>
+    <p>抽象地说五层容易失焦。拿 4 小时访谈里的一条真实要点，把每一层实际算出的数字摆出来。它在 <code>result.json</code> 里的原文是：</p>
+    <div class="code">
+      <div class="code-bar"><b>work/010f4e2c2eb5/result.json</b><span>key_points[1]</span></div>
+<pre>{<span class="s">"t"</span>: <span class="n">777.64</span>,
+ <span class="s">"text"</span>: <span class="s">"身体健康是财富自由一票否决权，不练搏击会拖慢进度、带来麻烦"</span>,
+ <span class="s">"source_id"</span>: <span class="s">"lib:010f4e2c2eb5:subtitle:164"</span>,
+ <span class="s">"quote"</span>: <span class="s">"这个是一票否定，"</span>,
+ <span class="s">"weakly_supported"</span>: <span class="k">true</span>}</pre>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>层</th><th>它拿什么和什么比</th><th>这一条的实际结果</th></tr></thead>
+        <tbody>
+          <tr><td><b>① 时间戳贴回</b></td><td>模型给的 t 与输入里的真实 t</td><td>777.64 正好是输入里的一个 t，<span class="num">误差 0s</span></td></tr>
+          <tr><td><b>② ±20s 回查</b></td><td>要点 × 窗口内 11 条字幕</td><td>bigram 命中率 <span class="num">0.577</span> ≥ 0.22 → <b>keep</b></td></tr>
+          <tr><td><b>③ 来源绑定</b></td><td>要点 × 该时刻<b>单条</b>字幕原话</td><td>绑定到 <code>subtitle:164</code>，引文「这个是一票否定，」</td></tr>
+          <tr><td><b>④ 支持率体检</b></td><td>要点 × 回填引文</td><td>相似度 <span class="num">0.061</span> &lt; 0.25 → <code>weakly_supported</code></td></tr>
+          <tr><td><b>⑤ 质量门</b></td><td>全报告的统计</td><td>29 条里 1 条达标 → 全局 <code>weak_source_support</code> 警告</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>同一条要点，在第 ② 层是 0.577（优秀），到第 ④ 层变成 0.061（可疑）。它没有变差，是<strong>分母换了</strong>：第 ② 层拿「要点 × 11 条连续字幕」比，要点本来就是这 11 条的归纳；第 ④ 层拿「要点 × 一条被绑定的原话」比，而被绑定的那条只是这 11 条里的一句话。</p>
+    <p>把 29 条全算一遍，分布是这样的：最高 0.271，中位 0.088，最低 0.0；只有 1 条越过 0.25。这就是那个 3.45% 的全部来源。它不是「96.5% 的内容是错的」，而是「96.5% 的要点不是对某一条原话的逐字改写」——这本来就是摘要的定义。</p>
+    <div class="formula">
+      <div class="eq">29 条 → 最高 0.271 · 中位 0.088 · 最低 0.0 · ≥0.25 的只有 <b>1</b> 条</div>
+      <small>相似度 = _bigram_similarity(要点文本, 程序回填的引文)，阈值 0.25</small>
+      <p class="why">所以这条告警的正确读法是：<em>这份报告缺少「逐字背书」</em>，失败点很可能出在「来源绑定只绑一句」而不是「模型胡说」。它是一个线索，不是一个判决——这正是质量门坚持「只标记、不删除」的原因。</p>
+    </div>
+    <p>这条案例还暴露了当前实现的一个真实局限：<strong>来源绑定取的是「这一时刻的那一条」字幕，而不是「这条要点实际综合的那几条」</strong>。绑定逻辑按时间戳找最近的一条、回填原话，简单、可复现，但对「把三句话合成一句」的要点天然不公平。要修就得让模型显式声明「我综合了哪几条记录」，再由程序逐条回查——那是下一步的工作，不是已经做到的事。</p>
+
+    <h3>为什么不用「多智能体」来保正确性</h3>
+    <p>这是我在这个项目里最想钉死的一个判断：<strong>正确性不来自 agent 的数量，来自可回查的证据和确定性检查。</strong>开三个 agent 互相质疑，看起来很像「交叉验证」，实际上是三次随机采样——它们共享同一批记录，也共享同一类盲区；分歧只能告诉你「这里不确定」，不能告诉你「谁对」。</p>
+    <p>SeeFlow 的替代方案很朴素：同一个 agent 多看一眼。校验不过时，取邻帧 <code>t±2s</code> 重看、放大关键区域、再问一次；两次观察一致就采信，不一致就标「未确认」或丢弃。额外成本是<strong>一次视觉调用</strong>，而不是一个新的 agent、一份新的上下文、一套新的编排。</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>手段</th><th>成本</th><th>它能回答的问题</th><th>它不能回答的</th></tr></thead>
+        <tbody>
+          <tr><td><b>确定性检查</b>（代码）</td><td>近零，可单测</td><td>这个时间戳存在吗？这段文字对得上吗？</td><td>语义对不对</td></tr>
+          <tr><td><b>重看</b>（同一 agent）</td><td>+1 次视觉调用</td><td>刚才那一帧是不是看错了？</td><td>两个说法都成立时选哪个</td></tr>
+          <tr><td><b>生成 / 审核分离</b>（两次调用）</td><td>+1 次文本调用，全新上下文</td><td>这条断言与记录直接矛盾吗？</td><td>记录本身缺失的部分</td></tr>
+          <tr><td><b>多 agent 群聊</b></td><td>N 倍上下文与调用</td><td>「大家是否都同意」</td><td>事实本身（只产生新的分歧）</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>所以「生成者 / 验证者」在这里只是<strong>两次调用</strong>：生成者写草稿，验证者在全新上下文里只拿断言 + 原始记录逐条核对——它之所以能发现问题，不是因为「它是另一个 agent」，而是因为它没有为草稿辩护的动机（详见上一段）。完整的多 agent 拓扑被推迟到长视频并行化阶段：那时它解决的是吞吐与上下文隔离，不是正确性。</p>
+
+    <h3>代码杀不死的那部分</h3>
+    <p>五层加起来，能杀的东西很具体：编造的时间戳、编造的画面文字、与记录矛盾的断言、不存在的引文、把转写疑点写成确定事实。它们杀不死另外三件事：</p>
+    <ul>
+      <li><strong>对真实画面的误读</strong>——帧是真的、OCR 对得上，但模型把「镜头在转」看成「云台在转」。代码无法判断语义，只能标置信度、要求多帧、让人看。</li>
+      <li><strong>改写漂移</strong>——每句话都能在记录里找到依据，但合起来改变了原意（比如把「某些场景」写成「所有场景」）。审核员能抓一部分，抓不全。</li>
+      <li><strong>源头本身错了</strong>——ASR 把型号听错、视频作者说错、字幕与画面互相矛盾。系统只能记录「两条轨不一致」，不能替你做事实核查。</li>
+    </ul>
+    <p>所以质量门（quality gate）的定位不是裁判，是<strong>体检报告</strong>。它输出诊断项：要点与邻近字幕高度重复（<code>transcript_like</code>）、包含画面判断却没有证据帧（<code>visual_without_evidence</code>）、要点集中在片头（<code>uncovered_tail</code>）、覆盖不完整（<code>coverage_incomplete</code>）、与程序回填原话的支持率偏低（<code>weak_source_support</code>）。状态只有 pass / review / fail；除结构性错误（缺时间戳、时间戳越界）外，它从不删除内容。那次 4 小时任务的体检结果是 0 个 error、4 个 warning、状态 <code>review</code>，其中一条正是「要点与程序回填原话的支持率偏低」——3.45%。</p>
+    <div class="note"><b>3.45% 不是「准确率」。</b>它衡量的是「要点与同一时刻回填的原话，bigram 相似度 ≥0.25 的比例」。要点是综合改写，原话是逐字引用，两者本来就不会高度重合。这个数字低，说明「逐字背书」少，不说明「内容错」。系统把它当审计线索（<code>weakly_supported</code> 标记），不当判决。想看懂这个区别，下一枚小样可以亲手推一遍。</div>
+
+    <p>下面这枚小样是校验层的可玩版本。左边是断言，右边是同一时刻的语料；拖动窗口与阈值，看它如何在 keep / repair / drop 之间切换。第二个模式是第 7 章评测用的双重判定：时间窗和内容相似度必须同时满足。</p>
+  </div>
+
+  <div class="demo" id="demo-verify">
+    <div class="demo-head">
+      <span class="demo-tag">DEMO 02</span>
+      <span class="demo-title">断言回查器 <span class="hint">同一套 bigram + 窗口，判决会随阈值翻转</span></span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl" style="flex:0 0 auto">
+          <label>模式</label>
+          <div class="seg" id="vf-mode">
+            <button data-mode="check" aria-pressed="true">断言回查</button>
+            <button data-mode="eval" aria-pressed="false">评测判定</button>
+          </div>
+        </div>
+        <div class="ctl">
+          <label for="vf-window">时间窗 <b id="vf-window-v">±20s</b></label>
+          <input id="vf-window" type="range" min="5" max="120" step="5" value="20"/>
+        </div>
+        <div class="ctl">
+          <label for="vf-threshold">相似阈值 <b id="vf-threshold-v">0.22</b></label>
+          <input id="vf-threshold" type="range" min="0.10" max="0.60" step="0.01" value="0.22"/>
+        </div>
+        <div class="ctl" id="vf-offset-wrap">
+          <label for="vf-offset">断言时间偏移 <b id="vf-offset-v">0s</b></label>
+          <input id="vf-offset" type="range" min="-120" max="120" step="5" value="0"/>
+        </div>
+      </div>
+      <div id="vf-presets" class="controls" style="border-top:0;padding-top:0;margin-top:-4px">
+        <div class="ctl" style="flex:1 1 100%">
+          <label>预设断言（可编辑）</label>
+          <div class="seg" id="vf-preset-btns" style="flex-wrap:wrap">
+            <button data-preset="0" aria-pressed="true">真实改写</button>
+            <button data-preset="1" aria-pressed="false">时间漂移</button>
+            <button data-preset="2" aria-pressed="false">编造数字</button>
+            <button data-preset="3" aria-pressed="false">跨段综合</button>
+          </div>
+        </div>
+      </div>
+      <div class="verify-grid">
+        <div class="claim-box">
+          <label id="vf-claim-label">断言 · t=602s</label>
+          <textarea id="vf-claim" spellcheck="false">R6 III 支持 7K 30 RAW Open Gate，同价位规格最高</textarea>
+          <div class="hintline" id="vf-gold" style="display:none;margin-top:8px;color:var(--muted)"></div>
+          <div class="claim-meta"><span id="vf-claim-len">0 字</span><span id="vf-claim-hint">窗口内语料：602±20s</span></div>
+        </div>
+        <div class="result-panel">
+          <div class="verdict"><span class="badge keep" id="vf-badge">KEEP</span><small id="vf-verdict-note">窗口内命中率达标，时间不动</small></div>
+          <div class="ratio-line"><span>bigram 命中率</span><b id="vf-ratio">0.000</b></div>
+          <div class="ratio-bar"><i id="vf-bar" style="width:0%"></i><s id="vf-threshold-mark" style="left:22%"></s></div>
+          <div class="ratio-line" style="border-bottom:0"><span>最佳匹配</span><b id="vf-best">t=602s / 0.000</b></div>
+          <div class="grams" id="vf-grams"></div>
+          <div class="hintline" id="vf-numwarn" style="display:none;color:#f0c97a;border-top:1px solid var(--line-soft);padding-top:8px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="demo-foot"><b>算法</b> 与 core/verify.py 同构：窗口内 bigram 命中率 ≥ 阈值 → keep；否则全时间轴找最佳匹配 ≥ 阈值 → repair；否则 drop。示意语料取自影视飓风颁奖片的真实字幕片段（已改写演示），不是实时模型。</div>
+  </div>
+</section>
